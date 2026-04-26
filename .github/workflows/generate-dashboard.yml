@@ -1,0 +1,33 @@
+name: Generate Nasdaq Scout Dashboard
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install yfinance pandas numpy openpyxl
+
+      - run: python generator.py --quick
+
+      - run: |
+          cp output/index.html index.html
+          cp output/latest_data.json latest_data.json
+          cp output/HistorialScores.xlsx HistorialScores.xlsx || true
+
+      - run: |
+          git config user.name "bot"
+          git config user.email "bot@example.com"
+          git add .
+          git commit -m "update" || echo "no changes"
+          git push
