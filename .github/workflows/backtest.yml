@@ -3,6 +3,9 @@ name: Backtest
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -21,6 +24,6 @@ jobs:
       - run: |
           git config user.name "bot"
           git config user.email "bot@example.com"
-          git add .
+          git add equity.csv
           git commit -m "backtest result" || echo "no changes"
           git push
