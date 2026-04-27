@@ -13,7 +13,7 @@ spy_equity = 1
 portfolio_curve = []
 spy_curve = []
 
-rebalance_dates = data.resample("M").last().index
+rebalance_dates = data.resample("ME").last().index
 
 for i in range(3, len(rebalance_dates)-1):
 
