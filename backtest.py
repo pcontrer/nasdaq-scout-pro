@@ -2,112 +2,113 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-tickers = ["NVDA","MSFT","AAPL","AMZN","META","GOOGL"]
-data = yf.download(tickers + ["SPY"], period="5y", auto_adjust=True)["Close"]
+UNIVERSES = {
+    "top": ["NVDA","MSFT","AAPL","AMZN","META","GOOGL"],
+    "tech": ["NVDA","MSFT","AAPL","AVGO","AMD","ADBE","CSCO","QCOM"],
+    "growth": ["TSLA","NFLX","META","AMZN","SHOP","PLTR","COIN","UBER"]
+}
 
-returns = data.pct_change()
+TOP_N_LIST = [2, 3, 5]
+YEARS_LIST = [3, 5, 7]
 
-equity = 1
-spy_equity = 1
 
-portfolio_curve = []
-spy_curve = []
+def calculate_rsi(px, period=14):
+    delta = px.diff()
+    gain = delta.clip(lower=0).ewm(span=period).mean()
+    loss = -delta.clip(upper=0).ewm(span=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
-rebalance_dates = data.resample("ME").last().index
 
-for i in range(3, len(rebalance_dates)-1):
+def run_backtest(tickers, years, top_n):
+    data = yf.download(tickers + ["SPY"], period=f"{years}y", auto_adjust=True)["Close"]
 
-    date = rebalance_dates[i]
-    next_date = rebalance_dates[i+1]
+    equity = 1
+    spy_equity = 1
 
-    past_data = data.loc[:date]
+    rebalance_dates = data.resample("ME").last().index
 
-    selected = []
+    for i in range(3, len(rebalance_dates)-1):
+        date = rebalance_dates[i]
+        next_date = rebalance_dates[i+1]
+        past_data = data.loc[:date]
 
-    for t in tickers:
-        try:
-            px = past_data[t].dropna()
+        selected = []
 
-            if len(px) < 100:
+        for t in tickers:
+            try:
+                px = past_data[t].dropna()
+
+                if len(px) < 100:
+                    continue
+
+                ema50 = px.ewm(span=50).mean().iloc[-1]
+                rsi = calculate_rsi(px).iloc[-1]
+                momentum = px.iloc[-1] / px.iloc[-63] - 1
+
+                if px.iloc[-1] > ema50 and rsi < 70:
+                    selected.append((t, momentum))
+
+            except Exception:
                 continue
 
-            ema50 = px.ewm(span=50).mean().iloc[-1]
-            rsi = 100 - (100 / (1 + (px.diff().clip(lower=0).ewm(span=14).mean() /
-                                     -px.diff().clip(upper=0).ewm(span=14).mean())))
+        selected = sorted(selected, key=lambda x: x[1], reverse=True)[:top_n]
 
-            rsi_val = rsi.iloc[-1]
-
-            momentum = px.iloc[-1] / px.iloc[-63] - 1
-
-            if px.iloc[-1] > ema50 and rsi_val < 70:
-                selected.append((t, momentum))
-
-        except:
+        if not selected:
             continue
 
-    selected = sorted(selected, key=lambda x: x[1], reverse=True)[:3]
+        period_returns = []
 
-    if not selected:
-        continue
+        for t, _ in selected:
+            px = data[t].loc[date:next_date].dropna()
 
-    period_returns = []
+            if len(px) < 2:
+                continue
 
-    for t, _ in selected:
-        px = data[t].loc[date:next_date].dropna()
+            ret = px.iloc[-1] / px.iloc[0] - 1
 
-        if len(px) < 2:
-            continue
+            min_drawdown = (px / px.iloc[0] - 1).min()
+            if min_drawdown < -0.10:
+                ret = -0.10
 
-        ret = px.iloc[-1] / px.iloc[0] - 1
+            period_returns.append(ret)
 
-        # STOP LOSS
-        min_drawdown = (px / px.iloc[0] - 1).min()
-        if min_drawdown < -0.10:
-            ret = -0.10
+        portfolio_return = np.mean(period_returns) if period_returns else 0
 
-        period_returns.append(ret)
+        spy_px = data["SPY"].loc[date:next_date].dropna()
+        spy_ret = spy_px.iloc[-1] / spy_px.iloc[0] - 1
 
-    if period_returns:
-        portfolio_return = np.mean(period_returns)
-    else:
-        portfolio_return = 0
+        equity *= (1 + portfolio_return)
+        spy_equity *= (1 + spy_ret)
 
-    spy_px = data["SPY"].loc[date:next_date].dropna()
-    spy_ret = spy_px.iloc[-1] / spy_px.iloc[0] - 1
+    return {
+        "strategy_total_return": equity - 1,
+        "spy_total_return": spy_equity - 1,
+        "alpha_vs_spy": equity - spy_equity
+    }
 
-    equity *= (1 + portfolio_return)
-    spy_equity *= (1 + spy_ret)
 
-    portfolio_curve.append(equity)
-    spy_curve.append(spy_equity)
+results = []
 
-# RESULTADOS
+for universe_name, tickers in UNIVERSES.items():
+    for years in YEARS_LIST:
+        for top_n in TOP_N_LIST:
+            print(f"Running: universe={universe_name}, years={years}, top_n={top_n}")
+            result = run_backtest(tickers, years, top_n)
 
-print("\nRESULTADOS\n")
+            results.append({
+                "universe": universe_name,
+                "years": years,
+                "top_n": top_n,
+                **result
+            })
 
-print("Strategy return:", round(equity - 1, 3))
-print("SPY return:", round(spy_equity - 1, 3))
+df = pd.DataFrame(results)
 
-df = pd.DataFrame({
-    "date": rebalance_dates[3:3+len(portfolio_curve)],
-    "strategy": portfolio_curve,
-    "spy": spy_curve,
-    "strategy_return": np.array(portfolio_curve) - 1,
-    "spy_return": np.array(spy_curve) - 1,
-    "alpha_vs_spy": np.array(portfolio_curve) - np.array(spy_curve)
-})
+df.to_csv("sensitivity_results.csv", index=False)
 
-df.to_csv("equity.csv", index=False)
+summary = df.sort_values("alpha_vs_spy", ascending=False)
+summary.to_csv("sensitivity_summary.csv", index=False)
 
-summary = pd.DataFrame([{
-    "final_strategy_value": equity,
-    "final_spy_value": spy_equity,
-    "strategy_total_return": equity - 1,
-    "spy_total_return": spy_equity - 1,
-    "alpha_vs_spy": equity - spy_equity
-}])
-
-summary.to_csv("summary.csv", index=False)
-
-print("\nSUMMARY\n")
+print("\nSENSITIVITY RESULTS\n")
 print(summary.to_string(index=False))
