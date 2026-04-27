@@ -89,8 +89,25 @@ print("Strategy return:", round(equity - 1, 3))
 print("SPY return:", round(spy_equity - 1, 3))
 
 df = pd.DataFrame({
+    "date": rebalance_dates[3:3+len(portfolio_curve)],
     "strategy": portfolio_curve,
-    "spy": spy_curve
+    "spy": spy_curve,
+    "strategy_return": np.array(portfolio_curve) - 1,
+    "spy_return": np.array(spy_curve) - 1,
+    "alpha_vs_spy": np.array(portfolio_curve) - np.array(spy_curve)
 })
 
-df.to_csv("equity.csv")
+df.to_csv("equity.csv", index=False)
+
+summary = pd.DataFrame([{
+    "final_strategy_value": equity,
+    "final_spy_value": spy_equity,
+    "strategy_total_return": equity - 1,
+    "spy_total_return": spy_equity - 1,
+    "alpha_vs_spy": equity - spy_equity
+}])
+
+summary.to_csv("summary.csv", index=False)
+
+print("\nSUMMARY\n")
+print(summary.to_string(index=False))
